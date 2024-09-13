@@ -5,6 +5,42 @@ from typing import List
 from singer_sdk import Tap, Stream
 from singer_sdk import typing as th
 
+import singer_sdk.helpers._typing
+
+def patched_is_boolean_type(property_schema: dict) -> bool | None:
+    """Return true if the JSON Schema type is a boolean or None if detection fails.
+
+    Without this patch, is_boolean_type() will return true for schemas that contain
+    non-boolean types, which causes values to be coerced to booleans.
+
+    For example, without this patch, a field with a value of `"abc"` and a jsonschema
+    type of `["boolean", "string"]` would cause this function to return `True`. Then the
+    SDK's _conform_primitive_property() would coerce `"abc"` to boolean, resulting in
+    that field's value being `True`.
+
+    See: https://github.com/MeltanoLabs/tap-universal-file/issues/59
+    """
+    if "anyOf" not in property_schema and "type" not in property_schema:
+        return None  # Could not detect data type
+    for property_type in property_schema.get("anyOf", [property_schema.get("type")]):
+        schema_type = (
+            property_type.get("type", [])
+            if isinstance(property_type, dict)
+            else property_type
+        )
+        if schema_type == "boolean" or (
+            "boolean" in schema_type
+            and (
+                len(schema_type) == 1
+                or ("null" in schema_type and len(schema_type) == 2)  # noqa: PLR2004
+            )
+        ):
+            return True
+    return False
+
+
+singer_sdk.helpers._typing.is_boolean_type = patched_is_boolean_type  # noqa: SLF001
+
 from tap_clickup.streams import (
     TeamsStream,
     SpacesStream,
